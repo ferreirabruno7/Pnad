@@ -72,7 +72,7 @@ processar_pnad_individual <- function(year, quarter) {
 options(download.file.method = "libcurl")
 
 # Definir intervalos de anos e trimestres
-anos <- 2015:2021
+anos <- 2015:2023
 trimestres <- 1:4
 resultados_individual <- list()
 
@@ -143,37 +143,12 @@ matchit_psm <- matchit(
 # Avaliar o balanceamento das covariáveis
 balance_table <- bal.tab(matchit_psm, un = TRUE, m.threshold = 0.25)
 print(balance_table)
-print(colnames(balance_table$Balance))
 
-
-library(dplyr)
-library(knitr)
-# Gerar tabela de balanceamento
-# Selecionar apenas as colunas de interesse
-balance_summary <- balance_table$Balance %>%
-  select(Diff.Un, Diff.Adj) %>%
-  rename(
-    Diferença_Média_Antes = Diff.Un,
-    Diferença_Média_Depois = Diff.Adj
-  ) %>%
-  mutate(
-    Diferença_Média_Antes = round(Diferença_Média_Antes, 3),
-    Diferença_Média_Depois = round(Diferença_Média_Depois, 3)
-  )
-
-# Exibir a tabela de balanceamento com formatação
-kable(balance_summary, caption = "Balanceamento das Covariáveis Antes e Depois do Matching")
 # Extrair os dados matchados com os pesos
 dados_matched <- match.data(matchit_psm)
 
-# Verificar os nomes das colunas para identificar os pesos
-head(dados_matched)
-
 # Criar um novo peso final como o produto dos pesos de matching e os pesos amostrais originais (V1028)
 dados_matched$final_weight <- dados_matched$weights * dados_matched$V1028
-
-# Verificar a criação do novo peso
-head(dados_matched$final_weight)
 
 # Criar o objeto de design amostral com os pesos finais
 design_matched <- svydesign(
@@ -182,20 +157,31 @@ design_matched <- svydesign(
   data = dados_matched             # Dados matchados
 )
 
-# Estimar a média da renda efetiva para tratados e controles ponderada pelos pesos finais
-media_renda_tratado <- svymean(~VD4017, subset(design_matched, tratamento == 1))
-media_renda_controle <- svymean(~VD4017, subset(design_matched, tratamento == 0))
+# Estimar a média da renda efetiva (VD4017) e habitual (VD4016) para tratados e controles
+media_renda_efetiva_tratado <- svymean(~VD4017, subset(design_matched, tratamento == 1))
+media_renda_efetiva_controle <- svymean(~VD4017, subset(design_matched, tratamento == 0))
 
-# Calcular o ATT como a diferença entre as médias
-ATT <- coef(media_renda_tratado) - coef(media_renda_controle)
+media_renda_habitual_tratado <- svymean(~VD4016, subset(design_matched, tratamento == 1))
+media_renda_habitual_controle <- svymean(~VD4016, subset(design_matched, tratamento == 0))
 
-# Exibir o resultado
-cat("Efeito Médio do Tratamento (ATT) na Renda Efetiva:", round(ATT, 2), "R$\n")
+# Calcular o ATT para renda efetiva e habitual
+ATT_efetiva <- coef(media_renda_efetiva_tratado) - coef(media_renda_efetiva_controle)
+ATT_habitual <- coef(media_renda_habitual_tratado) - coef(media_renda_habitual_controle)
+
+# Exibir os resultados
+cat("Efeito Médio do Tratamento (ATT) na Renda Efetiva:", round(ATT_efetiva, 2), "R$\n")
+cat("Efeito Médio do Tratamento (ATT) na Renda Habitual:", round(ATT_habitual, 2), "R$\n")
 
 # Regressão linear ponderada para estimar o ATT
-modelo <- svyglm(VD4017 ~ tratamento, design = design_matched)
-summary(modelo)
+modelo_efetiva <- svyglm(VD4017 ~ tratamento, design = design_matched)
+modelo_habitual <- svyglm(VD4016 ~ tratamento, design = design_matched)
+
+summary(modelo_efetiva)
+summary(modelo_habitual)
 
 # O coeficiente da variável 'tratamento' representa o ATT
-ATT_regressao <- coef(modelo)['tratamento']
-cat("Efeito Médio do Tratamento (ATT) na Renda Efetiva (Regressão):", round(ATT_regressao, 2), "R$\n")
+ATT_regressao_efetiva <- coef(modelo_efetiva)['tratamento']
+ATT_regressao_habitual <- coef(modelo_habitual)['tratamento']
+
+cat("Efeito Médio do Tratamento (ATT) na Renda Efetiva (Regressão):", round(ATT_regressao_efetiva, 2), "R$\n")
+cat("Efeito Médio do Tratamento (ATT) na Renda Habitual (Regressão):", round(ATT_regressao_habitual, 2), "R$\n")
